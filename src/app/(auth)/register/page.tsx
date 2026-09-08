@@ -33,15 +33,17 @@ export default function RegisterPage() {
       return
     }
 
-    // 2. Create lab record
-    const { error: labError } = await supabase.from('labs').insert({
-      name: labName,
-      owner_id: authData.user.id,
-      subscription_status: 'trial',
+    // 2. Create lab record via API (uses service_role to bypass RLS —
+    //    needed because email confirmation may delay session activation)
+    const labRes = await fetch('/api/auth/register-lab', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userId: authData.user.id, labName }),
     })
 
-    if (labError) {
-      setError('Account created but lab setup failed. Please contact support.')
+    if (!labRes.ok) {
+      const body = await labRes.json().catch(() => ({}))
+      setError(body.error ?? 'Account created but lab setup failed. Please contact support.')
       setLoading(false)
       return
     }
