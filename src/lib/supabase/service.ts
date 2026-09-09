@@ -1,9 +1,9 @@
 // Service-role Supabase client — server-side only, bypasses RLS
 // NEVER use this in client components or expose to browser
-import { createClient } from '@supabase/supabase-js'
+import { createClient as _createClient } from '@supabase/supabase-js'
 
 export function createServiceClient() {
-  return createClient(
+  return _createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!,
     {
@@ -14,3 +14,6 @@ export function createServiceClient() {
     }
   )
 }
+
+// Alias for backwards compatibility
+export const createClient = createServiceClient
