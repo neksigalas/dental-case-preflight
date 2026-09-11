@@ -126,5 +126,10 @@ export async function POST(req: NextRequest) {
     },
   ])
 
-  return NextResponse.json({ ok: true, caseNumber })
+  // Tell the clinic honestly what is still open, so it is never told a brief is
+  // complete when QA found a gap
+  const qaIssues = qaResult.issues
+    .filter((i) => !i.passed && i.severity === 'error')
+    .map((i) => i.message)
+  return NextResponse.json({ ok: true, caseNumber, qaPassed: qaResult.passed, qaIssues })
 }

@@ -1,7 +1,14 @@
 'use client'
 
 import { useState, useRef } from 'react'
-import { RESTORATION_TYPES } from '@/lib/types'
+import { RESTORATION_TYPES, SHADE_REQUIRED_TYPES } from '@/lib/types'
+import { runQA } from '@/lib/qa-engine/rules'
+
+// Which wizard step owns each QA rule, so a failing rule stops the clinic on the
+// step where it can be fixed. The same rules run again on the server.
+const RULE_STEP: Record<string, Step> = {
+  RULE_001: 1, RULE_002: 1, RULE_003: 2, RULE_004: 2, RULE_005: 2, RULE_006: 3,
+}
 
 interface Props {
   clinicId: string
@@ -31,6 +38,7 @@ export default function ClinicSubmitForm({ clinicId, clinicToken }: Props) {
   const [error, setError] = useState('')
   const [submitted, setSubmitted] = useState(false)
   const [caseNumber, setCaseNumber] = useState('')
+  const [openIssues, setOpenIssues] = useState<string[]>([])
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [dragOver, setDragOver] = useState(false)
 
@@ -54,24 +62,17 @@ export default function ClinicSubmitForm({ clinicId, clinicToken }: Props) {
     if (dropped.length) setFiles(prev => [...prev, ...dropped])
   }
 
+  function toothNumbers(): string[] {
+    return form.tooth_numbers_raw.split(/[\s,]+/).map((t) => t.trim()).filter(Boolean)
+  }
+
+  // The preflight itself: the clinic sees what the lab would reject before sending.
   function validateStep(s: Step): string | null {
-    if (s === 1) {
-      if (!form.patient_ref.trim()) return 'Patient reference is required.'
-      if (!form.tooth_numbers_raw.trim()) return 'Tooth numbers are required.'
-    }
-    if (s === 2) {
-      if (!form.restoration_type) return 'Please select a restoration type.'
-      if (!form.deadline) return 'Deadline is required.'
-      // Shade required for ceramic/veneer types
-      const needsShade = ['Ceramic crown', 'Porcelain veneer', 'Ceramic inlay/onlay', 'Composite veneer']
-      if (needsShade.includes(form.restoration_type) && !form.shade.trim()) {
-        return `Shade is required for ${form.restoration_type}.`
-      }
-    }
-    if (s === 3) {
-      if (files.length === 0) return 'Please attach at least one file (photo, STL, or prescription).'
-    }
-    return null
+    const qa = runQA({ ...form, tooth_numbers: toothNumbers() }, files.length)
+    const failed = qa.issues.find(
+      (i) => !i.passed && i.severity === 'error' && RULE_STEP[i.ruleId] === s
+    )
+    return failed ? failed.message : null
   }
 
   function nextStep() {
@@ -94,10 +95,7 @@ export default function ClinicSubmitForm({ clinicId, clinicToken }: Props) {
     setLoading(true)
     setError('')
 
-    const tooth_numbers = form.tooth_numbers_raw
-      .split(/[\s,]+/)
-      .map((t) => t.trim())
-      .filter(Boolean)
+    const tooth_numbers = toothNumbers()
 
     const formData = new FormData()
     formData.append('clinicId', clinicId)
@@ -118,6 +116,7 @@ export default function ClinicSubmitForm({ clinicId, clinicToken }: Props) {
     } else {
       setSubmitted(true)
       setCaseNumber(data.caseNumber)
+      setOpenIssues(data.qaIssues ?? [])
     }
     setLoading(false)
   }
@@ -140,11 +139,21 @@ export default function ClinicSubmitForm({ clinicId, clinicToken }: Props) {
         <p className="text-sm text-slate-500 max-w-xs mx-auto leading-relaxed">
           The lab will review your case. If anything is missing, they&apos;ll contact you directly.
         </p>
-        <div className="mt-6 p-4 rounded-xl text-left max-w-xs mx-auto"
-          style={{ background: '#F0FDF4', border: '1px solid #D1FAE5' }}>
-          <p className="text-xs text-emerald-700 font-medium mb-1">✓ QA checks ran automatically</p>
-          <p className="text-xs text-emerald-600">Your submission was reviewed for completeness. The lab received a clean brief.</p>
-        </div>
+        {openIssues.length === 0 ? (
+          <div className="mt-6 p-4 rounded-xl text-left max-w-xs mx-auto"
+            style={{ background: '#F0FDF4', border: '1px solid #D1FAE5' }}>
+            <p className="text-xs text-emerald-700 font-medium mb-1">✓ QA checks passed</p>
+            <p className="text-xs text-emerald-600">Your submission was checked for completeness. The lab received a complete brief.</p>
+          </div>
+        ) : (
+          <div className="mt-6 p-4 rounded-xl text-left max-w-xs mx-auto"
+            style={{ background: '#FFFBEB', border: '1px solid #FDE68A' }}>
+            <p className="text-xs text-amber-800 font-medium mb-1">The lab may contact you about:</p>
+            <ul className="text-xs text-amber-700 list-disc pl-4 space-y-0.5">
+              {openIssues.map((m) => <li key={m}>{m}</li>)}
+            </ul>
+          </div>
+        )}
       </div>
     )
   }
@@ -268,7 +277,7 @@ export default function ClinicSubmitForm({ clinicId, clinicToken }: Props) {
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1.5">
               Shade
-              {['Ceramic crown','Porcelain veneer','Ceramic inlay/onlay','Composite veneer'].includes(form.restoration_type) && (
+              {SHADE_REQUIRED_TYPES.includes(form.restoration_type) && (
                 <span className="text-red-500 ml-1">*</span>
               )}
             </label>
