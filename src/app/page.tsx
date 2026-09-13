@@ -57,8 +57,8 @@ export default async function Home() {
           </h1>
 
           <p className="text-lg text-slate-500 max-w-xl mx-auto mb-8 animate-fade-in-up delay-100">
-            Dental labs lose 4–8% of cases to remakes from incomplete info.
-            Preflight catches every missing detail <strong className="text-slate-700">before you touch the bench.</strong>
+            Clinics send cases through your link, and the form checks shade, tooth numbers,
+            deadline and files <strong className="text-slate-700">before the case reaches your bench.</strong>
           </p>
 
           <div className="flex flex-col sm:flex-row gap-3 justify-center animate-fade-in-up delay-200">
@@ -74,9 +74,11 @@ export default async function Home() {
           {/* Stats */}
           <div className="flex flex-wrap justify-center gap-8 mt-14 animate-fade-in delay-400">
             {[
-              { n: '4–8%', label: 'avg remake rate reduced' },
-              { n: '3h', label: 'saved per week on calls' },
-              { n: '100%', label: 'digital audit trail' },
+              // Facts about the product only: no remake or time-saved figures
+              // until real labs have produced them
+              { n: '6', label: 'automatic checks per case' },
+              { n: '0', label: 'accounts needed for clinics' },
+              { n: '14 days', label: 'free trial' },
             ].map((s) => (
               <div key={s.label} className="text-center">
                 <div className="text-2xl font-bold text-blue-600">{s.n}</div>
@@ -130,7 +132,7 @@ export default async function Home() {
                 </svg>
               ),
               title: 'You get a clean brief',
-              desc: 'Only cases that pass preflight reach your bench. Missing info triggers a clarification request to the clinic automatically.',
+              desc: 'The form will not send until the required details are there. Anything still unclear, you ask the clinic in the case thread, not by phone.',
             },
           ].map((item, i) => (
             <div key={i} className="card p-6 animate-fade-in-up" style={{ animationDelay: `${i * 0.1}s` }}>
