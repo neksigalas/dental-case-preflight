@@ -170,6 +170,16 @@ export async function POST(req: NextRequest) {
 
   let result: Record<string, unknown> = { skipped: true }
 
+  // Whop webhooks are company-wide: memberships of other DigitalDrop products
+  // (CreatorScan) arrive here too. Without this check, buying CreatorScan with
+  // the same email as a lab account would activate that lab for free.
+  const want = process.env.WHOP_PRODUCT_ID ?? 'prod_mJsqlrPbodqCQ'
+  const membership = (data.membership ?? data) as Record<string, unknown>
+  const productId = ((membership.product as Record<string, unknown> | undefined)?.id ?? membership.product_id) as string | undefined
+  if (productId && productId !== want) {
+    return NextResponse.json({ received: true, action, result: { skipped: 'other product', productId } })
+  }
+
   switch (action) {
     case 'membership.went_valid':
     case 'membership.activated':
