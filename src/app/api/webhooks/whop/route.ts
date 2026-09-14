@@ -2,8 +2,20 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createHmac } from 'crypto'
 import { createServiceClient } from '@/lib/supabase/service'
 
-// WHOP sends: x-whop-signature: sha256=<hex>
-// Verified with HMAC-SHA256(rawBody, WHOP_WEBHOOK_SECRET)
+// Whop signs webhooks the Standard Webhooks way (docs.whop.com/developer/guides/webhooks):
+//   webhook-id, webhook-timestamp, webhook-signature: "v1,<base64>" (space-separated if several)
+//   signature = base64(HMAC-SHA256(key, "${id}.${timestamp}.${rawBody}"))
+// The key is the ws_... secret used as-is; the base64 decoding of the part after
+// the prefix (the Standard Webhooks convention) is accepted too, so a change on
+// either side cannot silently reject every payment again. The older
+// "x-whop-signature: sha256=<hex>" of the body is still accepted.
+function safeEqual(a: string, b: string) {
+  if (a.length !== b.length) return false
+  let d = 0
+  for (let i = 0; i < a.length; i++) d |= a.charCodeAt(i) ^ b.charCodeAt(i)
+  return d === 0
+}
+
 async function verifySignature(req: NextRequest, rawBody: string): Promise<boolean> {
   const secret = process.env.WHOP_WEBHOOK_SECRET
   if (!secret) {
@@ -11,28 +23,34 @@ async function verifySignature(req: NextRequest, rawBody: string): Promise<boole
     return false
   }
 
-  const signature = req.headers.get('x-whop-signature') ?? req.headers.get('whop-signature') ?? ''
-  if (!signature) {
-    console.warn('No WHOP signature header present — rejecting')
-    return false
+  const id = req.headers.get('webhook-id')
+  const ts = req.headers.get('webhook-timestamp')
+  const sigHeader = req.headers.get('webhook-signature')
+  if (id && ts && sigHeader) {
+    if (Math.abs(Date.now() / 1000 - Number(ts)) > 300) {
+      console.warn('[whop webhook] timestamp outside 5 minutes')
+      return false
+    }
+    const keys: Buffer[] = [Buffer.from(secret, 'utf8')]
+    const bare = secret.replace(/^(ws|whsec)_/, '')
+    try { keys.push(Buffer.from(bare, 'base64')) } catch {}
+    const signed = `${id}.${ts}.${rawBody}`
+    const given = sigHeader.split(' ').map(s => s.split(',')[1]).filter(Boolean)
+    return keys.some(k => {
+      const mac = createHmac('sha256', k).update(signed, 'utf8').digest('base64')
+      return given.some(g => safeEqual(mac, g))
+    })
   }
 
-  // Header format: "sha256=<hex>" or just "<hex>"
-  const expectedHex = signature.startsWith('sha256=')
-    ? signature.slice(7)
-    : signature
-
-  const computed = createHmac('sha256', secret)
-    .update(rawBody, 'utf8')
-    .digest('hex')
-
-  // Constant-time comparison
-  if (computed.length !== expectedHex.length) return false
-  let diff = 0
-  for (let i = 0; i < computed.length; i++) {
-    diff |= computed.charCodeAt(i) ^ expectedHex.charCodeAt(i)
+  const legacy = req.headers.get('x-whop-signature') ?? req.headers.get('whop-signature') ?? ''
+  if (legacy) {
+    const hex = legacy.startsWith('sha256=') ? legacy.slice(7) : legacy
+    return safeEqual(createHmac('sha256', secret).update(rawBody, 'utf8').digest('hex'), hex)
   }
-  return diff === 0
+
+  // Header names only (never values), so a future format change is diagnosable
+  console.warn('[whop webhook] no signature header; headers were:', [...req.headers.keys()].join(','))
+  return false
 }
 
 // ── Event handlers ─────────────────────────────────────────────────────────────
@@ -154,9 +172,11 @@ export async function POST(req: NextRequest) {
 
   switch (action) {
     case 'membership.went_valid':
+    case 'membership.activated':
       result = await handleMembershipWentValid(data)
       break
     case 'membership.went_invalid':
+    case 'membership.deactivated':
       result = await handleMembershipWentInvalid(data)
       break
     default:

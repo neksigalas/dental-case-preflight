@@ -29,8 +29,10 @@ export async function middleware(request: NextRequest) {
 
   const pathname = request.nextUrl.pathname
 
-  // Public routes — no auth required
-  const publicRoutes = ['/login', '/register', '/submit']
+  // Public routes — no auth required. /api/submit is called by CLINICS, who
+  // never log in, and /api/webhooks by Whop; both were being redirected to
+  // /login (307), so no real clinic could submit and no payment activated a lab.
+  const publicRoutes = ['/login', '/register', '/submit', '/api/submit', '/api/webhooks']
   const isPublic = pathname === '/' || publicRoutes.some((r) => pathname.startsWith(r))
 
   // Redirect unauthenticated users to login (except public routes)
